@@ -217,14 +217,18 @@ public class HttpClientProvider implements AutoCloseable {
      */
     public HttpResponse doPost(String url, Map<String, String> headers, Map<String, String> params)
             throws Exception {
-        // create a new http get
-        HttpPost httpPost = new HttpPost(url);
+        // Create access address
+        URIBuilder uriBuilder = new URIBuilder(url);
+        // add parameter to uri
+        addParameters(uriBuilder, params);
+        // create a new http post
+        HttpPost httpPost = new HttpPost(uriBuilder.build());
         // set default request config
         httpPost.setConfig(REQUEST_CONFIG);
         // set request header
         addHeaders(httpPost, headers);
         // set request params
-        addParameters(httpPost, params);
+        //        addParameters(httpPost, params);
         // return http response
         return getResponse(httpPost);
     }
@@ -277,14 +281,19 @@ public class HttpClientProvider implements AutoCloseable {
     public HttpResponse doPost(
             String url, Map<String, String> headers, Map<String, String> params, String body)
             throws Exception {
-        // create a new http get
-        HttpPost httpPost = new HttpPost(url);
+
+        // Create access address
+        URIBuilder uriBuilder = new URIBuilder(url);
+        // add parameter to uri
+        addParameters(uriBuilder, params);
+        // create a new http post
+        HttpPost httpPost = new HttpPost(uriBuilder.build());
         // set default request config
         httpPost.setConfig(REQUEST_CONFIG);
         // set request header
         addHeaders(httpPost, headers);
         // set request params
-        addParameters(httpPost, params);
+        //        addParameters(httpPost, params);
         // add body in request
         addBody(httpPost, body);
         // return http response
@@ -394,6 +403,7 @@ public class HttpClientProvider implements AutoCloseable {
             parameters.add(pair);
         }
         // Set to the request's http object
+        UrlEncodedFormEntity entity = new UrlEncodedFormEntity(parameters, ENCODING);
         request.setEntity(new UrlEncodedFormEntity(parameters, ENCODING));
     }
 

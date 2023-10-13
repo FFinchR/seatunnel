@@ -18,6 +18,7 @@
 package org.apache.seatunnel.connectors.seatunnel.http.source;
 
 import org.apache.seatunnel.shade.com.typesafe.config.Config;
+import org.apache.seatunnel.shade.com.typesafe.config.ConfigList;
 import org.apache.seatunnel.shade.com.typesafe.config.ConfigRenderOptions;
 
 import org.apache.seatunnel.api.common.JobContext;
@@ -46,9 +47,16 @@ import org.apache.seatunnel.connectors.seatunnel.http.config.JsonField;
 import org.apache.seatunnel.connectors.seatunnel.http.exception.HttpConnectorException;
 import org.apache.seatunnel.format.json.JsonDeserializationSchema;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategy;
 import com.google.auto.service.AutoService;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @AutoService(SeaTunnelSource.class)
 public class HttpSource extends AbstractSingleSplitSource<SeaTunnelRow> {
@@ -58,6 +66,18 @@ public class HttpSource extends AbstractSingleSplitSource<SeaTunnelRow> {
     protected String contentField;
     protected JobContext jobContext;
     protected DeserializationSchema<SeaTunnelRow> deserializationSchema;
+
+    protected List<Map<String, String>> dynamicParams = new ArrayList<>();
+
+    /** 序列化器 */
+    private static final ObjectMapper OBJECT_MAPPER;
+
+    static {
+        OBJECT_MAPPER = new ObjectMapper();
+        OBJECT_MAPPER.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        OBJECT_MAPPER.setPropertyNamingStrategy(
+                PropertyNamingStrategy.CAMEL_CASE_TO_LOWER_CASE_WITH_UNDERSCORES);
+    }
 
     @Override
     public String getPluginName() {
@@ -83,6 +103,19 @@ public class HttpSource extends AbstractSingleSplitSource<SeaTunnelRow> {
         }
         this.httpParameter.buildWithConfig(pluginConfig);
         buildSchemaWithConfig(pluginConfig);
+        buildDynamicParamsConfig(pluginConfig);
+    }
+
+    private void buildDynamicParamsConfig(Config pluginConfig) {
+        if (pluginConfig.hasPath(HttpConfig.DYNAMIC_PARAMS.key())) {
+            ConfigList dynamicConfig = pluginConfig.getList(HttpConfig.DYNAMIC_PARAMS.key());
+            List<Object> configList = dynamicConfig.unwrapped();
+            for (Object config : configList) {
+                dynamicParams.add(
+                        OBJECT_MAPPER.convertValue(
+                                config, new TypeReference<Map<String, String>>() {}));
+            }
+        }
     }
 
     protected void buildSchemaWithConfig(Config pluginConfig) {
@@ -136,12 +169,15 @@ public class HttpSource extends AbstractSingleSplitSource<SeaTunnelRow> {
     @Override
     public AbstractSingleSplitReader<SeaTunnelRow> createReader(
             SingleSplitReaderContext readerContext) throws Exception {
-        return new HttpSourceReader(
-                this.httpParameter,
-                readerContext,
-                this.deserializationSchema,
-                jsonField,
-                contentField);
+        HttpSourceReader httpSourceReader =
+                new HttpSourceReader(
+                        this.httpParameter,
+                        readerContext,
+                        this.deserializationSchema,
+                        jsonField,
+                        contentField);
+        httpSourceReader.setDynamicParams(dynamicParams);
+        return httpSourceReader;
     }
 
     private JsonField getJsonField(Config jsonFieldConf) {

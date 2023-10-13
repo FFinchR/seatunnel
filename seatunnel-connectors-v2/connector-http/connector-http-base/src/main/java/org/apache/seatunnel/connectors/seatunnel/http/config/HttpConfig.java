@@ -20,9 +20,18 @@ package org.apache.seatunnel.connectors.seatunnel.http.config;
 import org.apache.seatunnel.api.configuration.Option;
 import org.apache.seatunnel.api.configuration.Options;
 
+import java.util.List;
 import java.util.Map;
 
 public class HttpConfig {
+
+    /** 动态参数列表 */
+    public static final Option<List<Map>> DYNAMIC_PARAMS =
+            Options.key("dynamic_params")
+                    .listType(Map.class)
+                    .noDefaultValue()
+                    .withDescription("custom dynamic params");
+
     public static final String BASIC = "Basic";
     public static final int DEFAULT_RETRY_BACKOFF_MULTIPLIER_MS = 100;
     public static final int DEFAULT_RETRY_BACKOFF_MAX_MS = 10000;

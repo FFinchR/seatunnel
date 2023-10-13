@@ -31,11 +31,15 @@ import org.apache.seatunnel.connectors.seatunnel.http.config.JsonField;
 import org.apache.seatunnel.connectors.seatunnel.http.exception.HttpConnectorErrorCode;
 import org.apache.seatunnel.connectors.seatunnel.http.exception.HttpConnectorException;
 
+import org.apache.commons.lang3.SerializationUtils;
+import org.apache.commons.lang3.StringUtils;
+
 import com.google.common.base.Strings;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
 import com.jayway.jsonpath.ReadContext;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.BufferedReader;
@@ -46,8 +50,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
+@Setter
 public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
     protected final SingleSplitReaderContext context;
     protected final HttpParameter httpParameter;
@@ -61,6 +68,14 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
     private final String contentJson;
     private final Configuration jsonConfiguration =
             Configuration.defaultConfiguration().addOptions(DEFAULT_OPTIONS);
+    private Boolean noMoreElementFlag = true;
+
+    /** 动态参数列表 */
+    private List<Map<String, String>> dynamicParams;
+    /** 目前到第几个 */
+    private int currentParamsIndex;
+    /** 原始参数，含占位符 */
+    private HttpParameter originHttpParameter;
 
     public HttpSourceReader(
             HttpParameter httpParameter,
@@ -70,6 +85,7 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
             String contentJson) {
         this.context = context;
         this.httpParameter = httpParameter;
+        this.originHttpParameter = SerializationUtils.clone(httpParameter);
         this.deserializationCollector = new DeserializationCollector(deserializationSchema);
         this.jsonField = jsonField;
         this.contentJson = contentJson;
@@ -87,40 +103,92 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
         }
     }
 
-    @Override
-    public void pollNext(Collector<SeaTunnelRow> output) throws Exception {
-        try {
-            HttpResponse response =
-                    httpClient.execute(
-                            this.httpParameter.getUrl(),
-                            this.httpParameter.getMethod().getMethod(),
-                            this.httpParameter.getHeaders(),
-                            this.httpParameter.getParams(),
-                            this.httpParameter.getBody());
-            if (HttpResponse.STATUS_OK == response.getCode()) {
-                String content = response.getContent();
-                if (!Strings.isNullOrEmpty(content)) {
-                    if (this.httpParameter.isEnableMultilines()) {
-                        StringReader stringReader = new StringReader(content);
-                        BufferedReader bufferedReader = new BufferedReader(stringReader);
-                        String lineStr;
-                        while ((lineStr = bufferedReader.readLine()) != null) {
-                            collect(output, lineStr);
-                        }
-                    } else {
-                        collect(output, content);
+    public void pollAndCollectData(Collector<SeaTunnelRow> output) throws Exception {
+        HttpResponse response =
+                httpClient.execute(
+                        this.httpParameter.getUrl(),
+                        this.httpParameter.getMethod().getMethod(),
+                        this.httpParameter.getHeaders(),
+                        this.httpParameter.getParams(),
+                        this.httpParameter.getBody());
+        if (HttpResponse.STATUS_OK == response.getCode()) {
+            String content = response.getContent();
+            if (!Strings.isNullOrEmpty(content)) {
+                if (this.httpParameter.isEnableMultilines()) {
+                    StringReader stringReader = new StringReader(content);
+                    BufferedReader bufferedReader = new BufferedReader(stringReader);
+                    String lineStr;
+                    while ((lineStr = bufferedReader.readLine()) != null) {
+                        collect(output, lineStr);
                     }
+                } else {
+                    collect(output, content);
                 }
-                return;
             }
+            log.info(
+                    "http client execute success request param:[{}], http response status code:[{}], content:[{}]",
+                    httpParameter.getParams(),
+                    response.getCode(),
+                    response.getContent());
+        } else {
             log.error(
                     "http client execute exception, http response status code:[{}], content:[{}]",
                     response.getCode(),
                     response.getContent());
+        }
+    }
+
+    private void updateRequestParam() {
+
+        String headerString = JsonUtils.toJsonString(originHttpParameter.getHeaders());
+        String paramString = JsonUtils.toJsonString(originHttpParameter.getParams());
+        String bodyString = originHttpParameter.getBody();
+        Map<String, String> currentParams = dynamicParams.get(currentParamsIndex);
+        for (Map.Entry<String, String> entry : currentParams.entrySet()) {
+            Pattern pattern = Pattern.compile("#\\{(" + entry.getKey() + ")\\}");
+            Matcher matcher = pattern.matcher(headerString);
+            while (matcher.find()) {
+                String placeholder = matcher.group(1);
+                headerString = headerString.replace("#{" + placeholder + "}", entry.getValue());
+            }
+            matcher = pattern.matcher(paramString);
+            while (matcher.find()) {
+                String placeholder = matcher.group(1);
+                paramString = paramString.replace("#{" + placeholder + "}", entry.getValue());
+            }
+            if (StringUtils.isNotBlank(bodyString)) {
+                matcher = pattern.matcher(bodyString);
+                while (matcher.find()) {
+                    String placeholder = matcher.group(1);
+                    bodyString = bodyString.replace("#{" + placeholder + "}", entry.getValue());
+                }
+            }
+        }
+        httpParameter.setHeaders(JsonUtils.toMap(headerString));
+        httpParameter.setParams(JsonUtils.toMap(paramString));
+        httpParameter.setBody(bodyString);
+    }
+
+    @Override
+    public void pollNext(Collector<SeaTunnelRow> output) throws Exception {
+        try {
+            if (null != dynamicParams && !dynamicParams.isEmpty()) {
+                noMoreElementFlag = false;
+                while (!noMoreElementFlag) {
+                    updateRequestParam();
+                    pollAndCollectData(output);
+                    currentParamsIndex += 1;
+                    if (currentParamsIndex >= dynamicParams.size()) {
+                        noMoreElementFlag = true;
+                    }
+                }
+            } else {
+                pollAndCollectData(output);
+            }
         } catch (Exception e) {
             log.error(e.getMessage(), e);
         } finally {
-            if (Boundedness.BOUNDED.equals(context.getBoundedness())) {
+            if (Boundedness.BOUNDED.equals(context.getBoundedness()) && noMoreElementFlag) {
                 // signal to the source that we have reached the end of the data.
                 log.info("Closed the bounded http source");
                 context.signalNoMoreElement();
