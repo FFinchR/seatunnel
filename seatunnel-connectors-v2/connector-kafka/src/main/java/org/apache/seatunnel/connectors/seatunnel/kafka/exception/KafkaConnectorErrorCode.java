@@ -29,7 +29,10 @@ public enum KafkaConnectorErrorCode implements SeaTunnelErrorCode {
     CONSUME_THREAD_RUN_ERROR(
             "KAFKA-05", "Error occurred when the kafka consumer thread was running"),
     CONSUME_DATA_FAILED("KAFKA-06", "Kafka failed to consume data"),
-    CONSUMER_CLOSE_FAILED("KAFKA-07", "Kafka failed to close consumer");
+    CONSUMER_CLOSE_FAILED("KAFKA-07", "Kafka failed to close consumer"),
+
+    FIELD_DATA_IS_INCONSISTENT("KAFKA-CUSTOM-JSON-08", "The field data is inconsistent");
+
 
     private final String code;
     private final String description;

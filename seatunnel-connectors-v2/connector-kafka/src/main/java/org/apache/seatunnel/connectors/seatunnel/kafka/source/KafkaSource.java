@@ -17,6 +17,7 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.source;
 
+import org.apache.seatunnel.connectors.seatunnel.kafka.config.JsonField;
 import org.apache.seatunnel.shade.com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.seatunnel.shade.com.typesafe.config.Config;
 import org.apache.seatunnel.shade.com.typesafe.config.ConfigRenderOptions;
@@ -61,22 +62,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.BOOTSTRAP_SERVERS;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.COMMIT_ON_CHECKPOINT;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.CONSUMER_GROUP;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.DEBEZIUM_RECORD_INCLUDE_SCHEMA;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.DEFAULT_FIELD_DELIMITER;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.FIELD_DELIMITER;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.FORMAT;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.KAFKA_CONFIG;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.KEY_PARTITION_DISCOVERY_INTERVAL_MILLIS;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.MESSAGE_FORMAT_ERROR_HANDLE_WAY_OPTION;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.PATTERN;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.SCHEMA;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE_OFFSETS;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE_TIMESTAMP;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.TOPIC;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.*;
 
 @AutoService(SeaTunnelSource.class)
 public class KafkaSource
@@ -91,6 +77,8 @@ public class KafkaSource
     private MessageFormatErrorHandleWay messageFormatErrorHandleWay =
             MessageFormatErrorHandleWay.FAIL;
 
+    protected JsonField jsonField;
+    protected String contentField;
     @Override
     public Boundedness getBoundedness() {
         return JobMode.BATCH.equals(jobContext.getJobMode())
@@ -218,7 +206,7 @@ public class KafkaSource
     public SourceReader<SeaTunnelRow, KafkaSourceSplit> createReader(
             SourceReader.Context readerContext) throws Exception {
         return new KafkaSourceReader(
-                this.metadata, deserializationSchema, readerContext, messageFormatErrorHandleWay);
+                this.metadata, deserializationSchema, readerContext, messageFormatErrorHandleWay, jsonField, contentField);
     }
 
     @Override
@@ -249,6 +237,17 @@ public class KafkaSource
             typeInfo = CatalogTableUtil.buildWithConfig(config).getSeaTunnelRowType();
             MessageFormat format = ReadonlyConfig.fromConfig(config).get(FORMAT);
             switch (format) {
+                case JSON_PATH:
+                    this.deserializationSchema =
+                            new JsonDeserializationSchema(false, false, typeInfo);
+                    if (config.hasPath(JSON_FIELD.key())) {
+                        jsonField =
+                                getJsonField(config.getConfig(JSON_FIELD.key()));
+                    }
+                    if (config.hasPath(CONTENT_FIELD.key())) {
+                        contentField = config.getString(CONTENT_FIELD.key());
+                    }
+                    break;
                 case JSON:
                     deserializationSchema = new JsonDeserializationSchema(false, false, typeInfo);
                     break;
@@ -294,5 +293,12 @@ public class KafkaSource
                             .delimiter(TextFormatConstant.PLACEHOLDER)
                             .build();
         }
+    }
+
+    private JsonField getJsonField(Config jsonFieldConf) {
+        ConfigRenderOptions options = ConfigRenderOptions.concise();
+        return JsonField.builder()
+                .fields(JsonUtils.toMap(jsonFieldConf.root().render(options)))
+                .build();
     }
 }

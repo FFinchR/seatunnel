@@ -17,15 +17,20 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.source;
 
+import com.jayway.jsonpath.Configuration;
+import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.Option;
+import com.jayway.jsonpath.ReadContext;
 import org.apache.seatunnel.api.serialization.DeserializationSchema;
 import org.apache.seatunnel.api.source.Boundedness;
 import org.apache.seatunnel.api.source.Collector;
 import org.apache.seatunnel.api.source.SourceReader;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
+import org.apache.seatunnel.common.utils.JsonUtils;
+import org.apache.seatunnel.connectors.seatunnel.kafka.config.JsonField;
 import org.apache.seatunnel.connectors.seatunnel.kafka.config.MessageFormatErrorHandleWay;
 import org.apache.seatunnel.connectors.seatunnel.kafka.exception.KafkaConnectorErrorCode;
 import org.apache.seatunnel.connectors.seatunnel.kafka.exception.KafkaConnectorException;
-import org.apache.seatunnel.format.compatible.kafka.connect.json.CompatibleKafkaConnectDeserializationSchema;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -36,14 +41,11 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.seatunnel.format.compatible.kafka.connect.json.CompatibleKafkaConnectDeserializationSchema;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -70,11 +72,23 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
 
     private volatile boolean running = false;
 
+    private final JsonField jsonField;
+    private final String contentJson;
+    private static final Option[] DEFAULT_OPTIONS = {
+            Option.SUPPRESS_EXCEPTIONS, Option.ALWAYS_RETURN_LIST, Option.DEFAULT_PATH_LEAF_TO_NULL
+    };
+    private final Configuration jsonConfiguration =
+            Configuration.defaultConfiguration().addOptions(DEFAULT_OPTIONS);
+
+    private JsonPath[] jsonPaths;
+    private final DeserializationCollector deserializationCollector;
+
+
     KafkaSourceReader(
             ConsumerMetadata metadata,
             DeserializationSchema<SeaTunnelRow> deserializationSchema,
             Context context,
-            MessageFormatErrorHandleWay messageFormatErrorHandleWay) {
+            MessageFormatErrorHandleWay messageFormatErrorHandleWay, JsonField jsonField, String contentJson) {
         this.metadata = metadata;
         this.context = context;
         this.messageFormatErrorHandleWay = messageFormatErrorHandleWay;
@@ -85,6 +99,9 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
         this.executorService =
                 Executors.newCachedThreadPool(r -> new Thread(r, "Kafka Source Data Consumer"));
         pendingPartitionsQueue = new LinkedBlockingQueue<>();
+        this.jsonField = jsonField;
+        this.contentJson = contentJson;
+        this.deserializationCollector = new DeserializationCollector(deserializationSchema);
     }
 
     @Override
@@ -151,16 +168,21 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
                                                             recordList) {
 
                                                         try {
-                                                            if (deserializationSchema
-                                                                    instanceof
-                                                                    CompatibleKafkaConnectDeserializationSchema) {
-                                                                ((CompatibleKafkaConnectDeserializationSchema)
-                                                                                deserializationSchema)
-                                                                        .deserialize(
-                                                                                record, output);
+                                                            //use JsonPath
+                                                            if (contentJson != null || jsonField != null) {
+                                                                collect(output, new String(record.value()));
                                                             } else {
-                                                                deserializationSchema.deserialize(
-                                                                        record.value(), output);
+                                                                if (deserializationSchema
+                                                                        instanceof
+                                                                        CompatibleKafkaConnectDeserializationSchema) {
+                                                                    ((CompatibleKafkaConnectDeserializationSchema)
+                                                                                    deserializationSchema)
+                                                                            .deserialize(
+                                                                                    record, output);
+                                                                } else {
+                                                                        deserializationSchema.deserialize(
+                                                                                record.value(), output);
+                                                                    }
                                                             }
                                                         } catch (IOException e) {
                                                             if (this.messageFormatErrorHandleWay
@@ -276,5 +298,96 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
                                 }
                             });
         }
+    }
+
+    private String getPartOfJson(String data) {
+        ReadContext jsonReadContext = JsonPath.using(jsonConfiguration).parse(data);
+        return JsonUtils.toJsonString(jsonReadContext.read(JsonPath.compile(contentJson)));
+    }
+
+    private void initJsonPath(JsonField jsonField) {
+        jsonPaths = new JsonPath[jsonField.getFields().size()];
+        for (int index = 0; index < jsonField.getFields().keySet().size(); index++) {
+            jsonPaths[index] =
+                    JsonPath.compile(
+                            jsonField.getFields().values().toArray(new String[] {})[index]);
+        }
+    }
+
+    private List<Map<String, String>> parseToMap(List<List<String>> datas, JsonField jsonField) {
+        List<Map<String, String>> decodeDatas = new ArrayList<>(datas.size());
+        String[] keys = jsonField.getFields().keySet().toArray(new String[] {});
+
+        for (List<String> data : datas) {
+            Map<String, String> decodeData = new HashMap<>(jsonField.getFields().size());
+            final int[] index = {0};
+            data.forEach(
+                    field -> {
+                        decodeData.put(keys[index[0]], field);
+                        index[0]++;
+                    });
+            decodeDatas.add(decodeData);
+        }
+
+        return decodeDatas;
+    }
+
+    private List<List<String>> decodeJSON(String data) {
+        ReadContext jsonReadContext = JsonPath.using(jsonConfiguration).parse(data);
+        List<List<String>> results = new ArrayList<>(jsonPaths.length);
+        for (JsonPath path : jsonPaths) {
+            List<String> result = jsonReadContext.read(path);
+            results.add(result);
+        }
+        for (int i = 1; i < results.size(); i++) {
+            List<?> result0 = results.get(0);
+            List<?> result = results.get(i);
+            if (result0.size() != result.size()) {
+                throw new KafkaConnectorException(
+                        KafkaConnectorErrorCode.FIELD_DATA_IS_INCONSISTENT,
+                        String.format(
+                                "[%s](%d) and [%s](%d) the number of parsing records is inconsistent.",
+                                jsonPaths[0].getPath(),
+                                result0.size(),
+                                jsonPaths[i].getPath(),
+                                result.size()));
+            }
+        }
+
+        return dataFlip(results);
+    }
+
+    private List<List<String>> dataFlip(List<List<String>> results) {
+
+        List<List<String>> datas = new ArrayList<>();
+        for (int i = 0; i < results.size(); i++) {
+            List<String> result = results.get(i);
+            if (i == 0) {
+                for (Object o : result) {
+                    String val = o == null ? null : o.toString();
+                    List<String> row = new ArrayList<>(jsonPaths.length);
+                    row.add(val);
+                    datas.add(row);
+                }
+            } else {
+                for (int j = 0; j < result.size(); j++) {
+                    Object o = result.get(j);
+                    String val = o == null ? null : o.toString();
+                    List<String> row = datas.get(j);
+                    row.add(val);
+                }
+            }
+        }
+        return datas;
+    }
+    private void collect(Collector<SeaTunnelRow> output, String data) throws IOException {
+        if (contentJson != null) {
+            data = JsonUtils.stringToJsonNode(getPartOfJson(data)).toString();
+        }
+        if (jsonField != null) {
+            this.initJsonPath(jsonField);
+            data = JsonUtils.toJsonNode(parseToMap(decodeJSON(data), jsonField)).toString();
+        }
+        deserializationCollector.collect(data.getBytes(), output);
     }
 }

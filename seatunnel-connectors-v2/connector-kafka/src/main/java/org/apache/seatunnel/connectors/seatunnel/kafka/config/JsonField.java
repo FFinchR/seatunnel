@@ -17,12 +17,18 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.config;
 
-public enum MessageFormat {
-    JSON,
-    TEXT,
-    CANAL_JSON,
-    DEBEZIUM_JSON,
-    COMPATIBLE_DEBEZIUM_JSON,
-    COMPATIBLE_KAFKA_CONNECT_JSON,
-    JSON_PATH
+import lombok.Builder;
+import lombok.Data;
+import org.apache.seatunnel.api.configuration.util.OptionMark;
+
+import java.io.Serializable;
+import java.util.Map;
+
+@Data
+@Builder
+public class JsonField implements Serializable {
+    private static final long serialVersionUID = -1L;
+
+    @OptionMark(description = "The json fields map")
+    private Map<String, String> fields;
 }
