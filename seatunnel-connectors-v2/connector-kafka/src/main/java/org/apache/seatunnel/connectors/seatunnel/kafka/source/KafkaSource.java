@@ -32,7 +32,8 @@ import org.apache.seatunnel.api.source.SeaTunnelSource;
 import org.apache.seatunnel.api.source.SourceReader;
 import org.apache.seatunnel.api.source.SourceSplitEnumerator;
 import org.apache.seatunnel.api.source.SupportParallelism;
-import org.apache.seatunnel.api.table.catalog.CatalogTableUtil;
+import org.apache.seatunnel.api.table.catalog.CatalogTable;
+import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.common.config.CheckConfigUtil;
@@ -57,7 +58,9 @@ import org.apache.seatunnel.format.text.constant.TextFormatConstant;
 import org.apache.kafka.common.TopicPartition;
 
 import com.google.auto.service.AutoService;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
@@ -69,13 +72,13 @@ public class KafkaSource
         implements SeaTunnelSource<SeaTunnelRow, KafkaSourceSplit, KafkaSourceState>,
                 SupportParallelism {
 
-    private final ConsumerMetadata metadata = new ConsumerMetadata();
-    private DeserializationSchema<SeaTunnelRow> deserializationSchema;
-    private SeaTunnelRowType typeInfo;
     private JobContext jobContext;
-    private long discoveryIntervalMillis = KEY_PARTITION_DISCOVERY_INTERVAL_MILLIS.defaultValue();
-    private MessageFormatErrorHandleWay messageFormatErrorHandleWay =
-            MessageFormatErrorHandleWay.FAIL;
+
+    private final KafkaSourceConfig kafkaSourceConfig;
+
+    public KafkaSource(ReadonlyConfig readonlyConfig) {
+        kafkaSourceConfig = new KafkaSourceConfig(readonlyConfig);
+    }
 
     protected JsonField jsonField;
     protected String contentField;
@@ -92,137 +95,43 @@ public class KafkaSource
     }
 
     @Override
-    public void prepare(Config config) throws PrepareFailException {
-        CheckResult result =
-                CheckConfigUtil.checkAllExists(config, TOPIC.key(), BOOTSTRAP_SERVERS.key());
-        if (!result.isSuccess()) {
-            throw new KafkaConnectorException(
-                    SeaTunnelAPIErrorCode.CONFIG_VALIDATION_FAILED,
-                    String.format(
-                            "PluginName: %s, PluginType: %s, Message: %s",
-                            getPluginName(), PluginType.SOURCE, result.getMsg()));
-        }
-        this.metadata.setTopic(config.getString(TOPIC.key()));
-        if (config.hasPath(PATTERN.key())) {
-            this.metadata.setPattern(config.getBoolean(PATTERN.key()));
-        } else {
-            this.metadata.setPattern(PATTERN.defaultValue());
-        }
-        this.metadata.setBootstrapServers(config.getString(BOOTSTRAP_SERVERS.key()));
-        this.metadata.setProperties(new Properties());
-
-        if (config.hasPath(CONSUMER_GROUP.key())) {
-            this.metadata.setConsumerGroup(config.getString(CONSUMER_GROUP.key()));
-        } else {
-            this.metadata.setConsumerGroup(CONSUMER_GROUP.defaultValue());
-        }
-
-        if (config.hasPath(COMMIT_ON_CHECKPOINT.key())) {
-            this.metadata.setCommitOnCheckpoint(config.getBoolean(COMMIT_ON_CHECKPOINT.key()));
-        } else {
-            this.metadata.setCommitOnCheckpoint(COMMIT_ON_CHECKPOINT.defaultValue());
-        }
-
-        if (config.hasPath(START_MODE.key())) {
-            StartMode startMode =
-                    StartMode.valueOf(config.getString(START_MODE.key()).toUpperCase());
-            this.metadata.setStartMode(startMode);
-            switch (startMode) {
-                case TIMESTAMP:
-                    long startOffsetsTimestamp = config.getLong(START_MODE_TIMESTAMP.key());
-                    long currentTimestamp = System.currentTimeMillis();
-                    if (startOffsetsTimestamp < 0 || startOffsetsTimestamp > currentTimestamp) {
-                        throw new IllegalArgumentException(
-                                "start_mode.timestamp The value is smaller than 0 or smaller than the current time");
-                    }
-                    this.metadata.setStartOffsetsTimestamp(startOffsetsTimestamp);
-                    break;
-                case SPECIFIC_OFFSETS:
-                    Config offsets = config.getConfig(START_MODE_OFFSETS.key());
-                    ConfigRenderOptions options = ConfigRenderOptions.concise();
-                    String offsetsJson = offsets.root().render(options);
-                    if (offsetsJson == null) {
-                        throw new IllegalArgumentException(
-                                "start mode is "
-                                        + StartMode.SPECIFIC_OFFSETS
-                                        + "but no specific offsets were specified.");
-                    }
-                    Map<TopicPartition, Long> specificStartOffsets = new HashMap<>();
-                    ObjectNode jsonNodes = JsonUtils.parseObject(offsetsJson);
-                    jsonNodes
-                            .fieldNames()
-                            .forEachRemaining(
-                                    key -> {
-                                        int splitIndex = key.lastIndexOf("-");
-                                        String topic = key.substring(0, splitIndex);
-                                        String partition = key.substring(splitIndex + 1);
-                                        long offset = jsonNodes.get(key).asLong();
-                                        TopicPartition topicPartition =
-                                                new TopicPartition(
-                                                        topic, Integer.valueOf(partition));
-                                        specificStartOffsets.put(topicPartition, offset);
-                                    });
-                    this.metadata.setSpecificStartOffsets(specificStartOffsets);
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        if (config.hasPath(KEY_PARTITION_DISCOVERY_INTERVAL_MILLIS.key())) {
-            this.discoveryIntervalMillis =
-                    config.getLong(KEY_PARTITION_DISCOVERY_INTERVAL_MILLIS.key());
-        }
-
-        if (CheckConfigUtil.isValidParam(config, KAFKA_CONFIG.key())) {
-            config.getObject(KAFKA_CONFIG.key())
-                    .forEach(
-                            (key, value) ->
-                                    this.metadata.getProperties().put(key, value.unwrapped()));
-        }
-
-        if (config.hasPath(MESSAGE_FORMAT_ERROR_HANDLE_WAY_OPTION.key())) {
-            MessageFormatErrorHandleWay formatErrorWayOption =
-                    ReadonlyConfig.fromConfig(config).get(MESSAGE_FORMAT_ERROR_HANDLE_WAY_OPTION);
-            switch (formatErrorWayOption) {
-                case FAIL:
-                case SKIP:
-                    this.messageFormatErrorHandleWay = formatErrorWayOption;
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        setDeserialization(config);
+    public List<CatalogTable> getProducedCatalogTables() {
+        return Lists.newArrayList(kafkaSourceConfig.getCatalogTable());
     }
 
     @Override
-    public SeaTunnelRowType getProducedType() {
-        return this.typeInfo;
+    public SeaTunnelDataType<SeaTunnelRow> getProducedType() {
+        return kafkaSourceConfig.getCatalogTable().getSeaTunnelRowType();
     }
 
     @Override
     public SourceReader<SeaTunnelRow, KafkaSourceSplit> createReader(
-            SourceReader.Context readerContext) throws Exception {
+            SourceReader.Context readerContext) {
         return new KafkaSourceReader(
-                this.metadata, deserializationSchema, readerContext, messageFormatErrorHandleWay, jsonField, contentField);
+                kafkaSourceConfig.getMetadata(),
+                kafkaSourceConfig.getDeserializationSchema(),
+                readerContext,
+                kafkaSourceConfig.getMessageFormatErrorHandleWay());
     }
 
     @Override
     public SourceSplitEnumerator<KafkaSourceSplit, KafkaSourceState> createEnumerator(
-            SourceSplitEnumerator.Context<KafkaSourceSplit> enumeratorContext) throws Exception {
+            SourceSplitEnumerator.Context<KafkaSourceSplit> enumeratorContext) {
         return new KafkaSourceSplitEnumerator(
-                this.metadata, enumeratorContext, discoveryIntervalMillis);
+                kafkaSourceConfig.getMetadata(),
+                enumeratorContext,
+                kafkaSourceConfig.getDiscoveryIntervalMillis());
     }
 
     @Override
     public SourceSplitEnumerator<KafkaSourceSplit, KafkaSourceState> restoreEnumerator(
             SourceSplitEnumerator.Context<KafkaSourceSplit> enumeratorContext,
-            KafkaSourceState checkpointState)
-            throws Exception {
+            KafkaSourceState checkpointState) {
         return new KafkaSourceSplitEnumerator(
-                this.metadata, enumeratorContext, checkpointState, discoveryIntervalMillis);
+                kafkaSourceConfig.getMetadata(),
+                enumeratorContext,
+                checkpointState,
+                kafkaSourceConfig.getDiscoveryIntervalMillis());
     }
 
     @Override
@@ -237,17 +146,6 @@ public class KafkaSource
             typeInfo = CatalogTableUtil.buildWithConfig(config).getSeaTunnelRowType();
             MessageFormat format = ReadonlyConfig.fromConfig(config).get(FORMAT);
             switch (format) {
-                case JSON_PATH:
-                    this.deserializationSchema =
-                            new JsonDeserializationSchema(false, false, typeInfo);
-                    if (config.hasPath(JSON_FIELD.key())) {
-                        jsonField =
-                                getJsonField(config.getConfig(JSON_FIELD.key()));
-                    }
-                    if (config.hasPath(CONTENT_FIELD.key())) {
-                        contentField = config.getString(CONTENT_FIELD.key());
-                    }
-                    break;
                 case JSON:
                     deserializationSchema = new JsonDeserializationSchema(false, false, typeInfo);
                     break;
@@ -293,12 +191,5 @@ public class KafkaSource
                             .delimiter(TextFormatConstant.PLACEHOLDER)
                             .build();
         }
-    }
-
-    private JsonField getJsonField(Config jsonFieldConf) {
-        ConfigRenderOptions options = ConfigRenderOptions.concise();
-        return JsonField.builder()
-                .fields(JsonUtils.toMap(jsonFieldConf.root().render(options)))
-                .build();
     }
 }
