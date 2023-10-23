@@ -17,6 +17,9 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.source;
 
+import org.apache.seatunnel.shade.com.typesafe.config.Config;
+import org.apache.seatunnel.shade.com.typesafe.config.ConfigRenderOptions;
+
 import org.apache.seatunnel.api.configuration.ReadonlyConfig;
 import org.apache.seatunnel.api.serialization.DeserializationSchema;
 import org.apache.seatunnel.api.table.catalog.CatalogTable;
@@ -30,6 +33,8 @@ import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
 import org.apache.seatunnel.common.exception.CommonErrorCode;
+import org.apache.seatunnel.common.utils.JsonUtils;
+import org.apache.seatunnel.connectors.seatunnel.kafka.config.JsonField;
 import org.apache.seatunnel.connectors.seatunnel.kafka.config.MessageFormat;
 import org.apache.seatunnel.connectors.seatunnel.kafka.config.MessageFormatErrorHandleWay;
 import org.apache.seatunnel.connectors.seatunnel.kafka.config.StartMode;
@@ -54,21 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.BOOTSTRAP_SERVERS;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.COMMIT_ON_CHECKPOINT;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.CONNECTOR_IDENTITY;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.CONSUMER_GROUP;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.DEBEZIUM_RECORD_INCLUDE_SCHEMA;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.FIELD_DELIMITER;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.FORMAT;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.KAFKA_CONFIG;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.KEY_PARTITION_DISCOVERY_INTERVAL_MILLIS;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.MESSAGE_FORMAT_ERROR_HANDLE_WAY_OPTION;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.PATTERN;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE_OFFSETS;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE_TIMESTAMP;
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.TOPIC;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.*;
 
 public class KafkaSourceConfig implements Serializable {
 
@@ -83,6 +74,10 @@ public class KafkaSourceConfig implements Serializable {
     @Getter private final MessageFormatErrorHandleWay messageFormatErrorHandleWay;
 
     @Getter private final long discoveryIntervalMillis;
+
+    @Getter protected JsonField jsonField;
+
+    @Getter protected String contentField;
 
     public KafkaSourceConfig(ReadonlyConfig readonlyConfig) {
         this.metadata = createConsumerMetadata(readonlyConfig);
@@ -206,6 +201,16 @@ public class KafkaSourceConfig implements Serializable {
 
         MessageFormat format = readonlyConfig.get(FORMAT);
         switch (format) {
+            case JSON_PATH:
+                Config config = readonlyConfig.toConfig();
+                if (config.hasPath(JSON_FIELD.key())) {
+                    jsonField =
+                            getJsonField(config.getConfig(JSON_FIELD.key()));
+                }
+                if (config.hasPath(CONTENT_FIELD.key())) {
+                    contentField = config.getString(CONTENT_FIELD.key());
+                }
+                return new JsonDeserializationSchema(false, false, seaTunnelRowType);
             case JSON:
                 return new JsonDeserializationSchema(false, false, seaTunnelRowType);
             case TEXT:
@@ -234,5 +239,12 @@ public class KafkaSourceConfig implements Serializable {
                 throw new SeaTunnelJsonFormatException(
                         CommonErrorCode.UNSUPPORTED_DATA_TYPE, "Unsupported format: " + format);
         }
+    }
+
+    private JsonField getJsonField(Config jsonFieldConf) {
+        ConfigRenderOptions options = ConfigRenderOptions.concise();
+        return JsonField.builder()
+                .fields(JsonUtils.toMap(jsonFieldConf.root().render(options)))
+                .build();
     }
 }

@@ -17,16 +17,8 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.source;
 
-import org.apache.seatunnel.connectors.seatunnel.kafka.config.JsonField;
-import org.apache.seatunnel.shade.com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.seatunnel.shade.com.typesafe.config.Config;
-import org.apache.seatunnel.shade.com.typesafe.config.ConfigRenderOptions;
-
 import org.apache.seatunnel.api.common.JobContext;
-import org.apache.seatunnel.api.common.PrepareFailException;
-import org.apache.seatunnel.api.common.SeaTunnelAPIErrorCode;
 import org.apache.seatunnel.api.configuration.ReadonlyConfig;
-import org.apache.seatunnel.api.serialization.DeserializationSchema;
 import org.apache.seatunnel.api.source.Boundedness;
 import org.apache.seatunnel.api.source.SeaTunnelSource;
 import org.apache.seatunnel.api.source.SourceReader;
@@ -35,37 +27,13 @@ import org.apache.seatunnel.api.source.SupportParallelism;
 import org.apache.seatunnel.api.table.catalog.CatalogTable;
 import org.apache.seatunnel.api.table.type.SeaTunnelDataType;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
-import org.apache.seatunnel.api.table.type.SeaTunnelRowType;
-import org.apache.seatunnel.common.config.CheckConfigUtil;
-import org.apache.seatunnel.common.config.CheckResult;
 import org.apache.seatunnel.common.constants.JobMode;
-import org.apache.seatunnel.common.constants.PluginType;
-import org.apache.seatunnel.common.exception.CommonErrorCode;
-import org.apache.seatunnel.common.utils.JsonUtils;
-import org.apache.seatunnel.connectors.seatunnel.kafka.config.MessageFormat;
-import org.apache.seatunnel.connectors.seatunnel.kafka.config.MessageFormatErrorHandleWay;
-import org.apache.seatunnel.connectors.seatunnel.kafka.config.StartMode;
-import org.apache.seatunnel.connectors.seatunnel.kafka.exception.KafkaConnectorException;
 import org.apache.seatunnel.connectors.seatunnel.kafka.state.KafkaSourceState;
-import org.apache.seatunnel.format.compatible.kafka.connect.json.CompatibleKafkaConnectDeserializationSchema;
-import org.apache.seatunnel.format.json.JsonDeserializationSchema;
-import org.apache.seatunnel.format.json.canal.CanalJsonDeserializationSchema;
-import org.apache.seatunnel.format.json.debezium.DebeziumJsonDeserializationSchema;
-import org.apache.seatunnel.format.json.exception.SeaTunnelJsonFormatException;
-import org.apache.seatunnel.format.text.TextDeserializationSchema;
-import org.apache.seatunnel.format.text.constant.TextFormatConstant;
-
-import org.apache.kafka.common.TopicPartition;
 
 import com.google.auto.service.AutoService;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
-
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.*;
 
 @AutoService(SeaTunnelSource.class)
 public class KafkaSource
@@ -80,8 +48,6 @@ public class KafkaSource
         kafkaSourceConfig = new KafkaSourceConfig(readonlyConfig);
     }
 
-    protected JsonField jsonField;
-    protected String contentField;
     @Override
     public Boundedness getBoundedness() {
         return JobMode.BATCH.equals(jobContext.getJobMode())
@@ -111,7 +77,9 @@ public class KafkaSource
                 kafkaSourceConfig.getMetadata(),
                 kafkaSourceConfig.getDeserializationSchema(),
                 readerContext,
-                kafkaSourceConfig.getMessageFormatErrorHandleWay());
+                kafkaSourceConfig.getMessageFormatErrorHandleWay(),
+                kafkaSourceConfig.getJsonField(),
+                kafkaSourceConfig.getContentField());
     }
 
     @Override
@@ -137,59 +105,5 @@ public class KafkaSource
     @Override
     public void setJobContext(JobContext jobContext) {
         this.jobContext = jobContext;
-    }
-
-    private void setDeserialization(Config config) {
-        if (config.hasPath(SCHEMA.key())) {
-            Config schema = config.getConfig(SCHEMA.key());
-            // todo: use KafkaDataTypeConvertor here?
-            typeInfo = CatalogTableUtil.buildWithConfig(config).getSeaTunnelRowType();
-            MessageFormat format = ReadonlyConfig.fromConfig(config).get(FORMAT);
-            switch (format) {
-                case JSON:
-                    deserializationSchema = new JsonDeserializationSchema(false, false, typeInfo);
-                    break;
-                case TEXT:
-                    String delimiter = DEFAULT_FIELD_DELIMITER;
-                    if (config.hasPath(FIELD_DELIMITER.key())) {
-                        delimiter = config.getString(FIELD_DELIMITER.key());
-                    }
-                    deserializationSchema =
-                            TextDeserializationSchema.builder()
-                                    .seaTunnelRowType(typeInfo)
-                                    .delimiter(delimiter)
-                                    .build();
-                    break;
-                case CANAL_JSON:
-                    deserializationSchema =
-                            CanalJsonDeserializationSchema.builder(typeInfo)
-                                    .setIgnoreParseErrors(true)
-                                    .build();
-                    break;
-                case COMPATIBLE_KAFKA_CONNECT_JSON:
-                    deserializationSchema =
-                            new CompatibleKafkaConnectDeserializationSchema(
-                                    typeInfo, config, false, false);
-                    break;
-                case DEBEZIUM_JSON:
-                    boolean includeSchema = DEBEZIUM_RECORD_INCLUDE_SCHEMA.defaultValue();
-                    if (config.hasPath(DEBEZIUM_RECORD_INCLUDE_SCHEMA.key())) {
-                        includeSchema = config.getBoolean(DEBEZIUM_RECORD_INCLUDE_SCHEMA.key());
-                    }
-                    deserializationSchema =
-                            new DebeziumJsonDeserializationSchema(typeInfo, true, includeSchema);
-                    break;
-                default:
-                    throw new SeaTunnelJsonFormatException(
-                            CommonErrorCode.UNSUPPORTED_DATA_TYPE, "Unsupported format: " + format);
-            }
-        } else {
-            typeInfo = CatalogTableUtil.buildSimpleTextSchema();
-            this.deserializationSchema =
-                    TextDeserializationSchema.builder()
-                            .seaTunnelRowType(typeInfo)
-                            .delimiter(TextFormatConstant.PLACEHOLDER)
-                            .build();
-        }
     }
 }

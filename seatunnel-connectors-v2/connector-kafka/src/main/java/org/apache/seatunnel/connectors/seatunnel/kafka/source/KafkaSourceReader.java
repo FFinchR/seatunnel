@@ -17,10 +17,6 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.source;
 
-import com.jayway.jsonpath.Configuration;
-import com.jayway.jsonpath.JsonPath;
-import com.jayway.jsonpath.Option;
-import com.jayway.jsonpath.ReadContext;
 import org.apache.seatunnel.api.serialization.DeserializationSchema;
 import org.apache.seatunnel.api.source.Boundedness;
 import org.apache.seatunnel.api.source.Collector;
@@ -31,6 +27,7 @@ import org.apache.seatunnel.connectors.seatunnel.kafka.config.JsonField;
 import org.apache.seatunnel.connectors.seatunnel.kafka.config.MessageFormatErrorHandleWay;
 import org.apache.seatunnel.connectors.seatunnel.kafka.exception.KafkaConnectorErrorCode;
 import org.apache.seatunnel.connectors.seatunnel.kafka.exception.KafkaConnectorException;
+import org.apache.seatunnel.format.compatible.kafka.connect.json.CompatibleKafkaConnectDeserializationSchema;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -40,8 +37,11 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.jayway.jsonpath.Configuration;
+import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.Option;
+import com.jayway.jsonpath.ReadContext;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.seatunnel.format.compatible.kafka.connect.json.CompatibleKafkaConnectDeserializationSchema;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -75,7 +75,7 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
     private final JsonField jsonField;
     private final String contentJson;
     private static final Option[] DEFAULT_OPTIONS = {
-            Option.SUPPRESS_EXCEPTIONS, Option.ALWAYS_RETURN_LIST, Option.DEFAULT_PATH_LEAF_TO_NULL
+        Option.SUPPRESS_EXCEPTIONS, Option.ALWAYS_RETURN_LIST, Option.DEFAULT_PATH_LEAF_TO_NULL
     };
     private final Configuration jsonConfiguration =
             Configuration.defaultConfiguration().addOptions(DEFAULT_OPTIONS);
@@ -83,12 +83,13 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
     private JsonPath[] jsonPaths;
     private final DeserializationCollector deserializationCollector;
 
-
     KafkaSourceReader(
             ConsumerMetadata metadata,
             DeserializationSchema<SeaTunnelRow> deserializationSchema,
             Context context,
-            MessageFormatErrorHandleWay messageFormatErrorHandleWay, JsonField jsonField, String contentJson) {
+            MessageFormatErrorHandleWay messageFormatErrorHandleWay,
+            JsonField jsonField,
+            String contentJson) {
         this.metadata = metadata;
         this.context = context;
         this.messageFormatErrorHandleWay = messageFormatErrorHandleWay;
@@ -168,9 +169,12 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
                                                             recordList) {
 
                                                         try {
-                                                            //use JsonPath
-                                                            if (contentJson != null || jsonField != null) {
-                                                                collect(output, new String(record.value()));
+                                                            // use JsonPath
+                                                            if (contentJson != null
+                                                                    || jsonField != null) {
+                                                                collect(
+                                                                        output,
+                                                                        new String(record.value()));
                                                             } else {
                                                                 if (deserializationSchema
                                                                         instanceof
@@ -180,9 +184,11 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
                                                                             .deserialize(
                                                                                     record, output);
                                                                 } else {
-                                                                        deserializationSchema.deserialize(
-                                                                                record.value(), output);
-                                                                    }
+                                                                    deserializationSchema
+                                                                            .deserialize(
+                                                                                    record.value(),
+                                                                                    output);
+                                                                }
                                                             }
                                                         } catch (IOException e) {
                                                             if (this.messageFormatErrorHandleWay
@@ -380,6 +386,7 @@ public class KafkaSourceReader implements SourceReader<SeaTunnelRow, KafkaSource
         }
         return datas;
     }
+
     private void collect(Collector<SeaTunnelRow> output, String data) throws IOException {
         if (contentJson != null) {
             data = JsonUtils.stringToJsonNode(getPartOfJson(data)).toString();
