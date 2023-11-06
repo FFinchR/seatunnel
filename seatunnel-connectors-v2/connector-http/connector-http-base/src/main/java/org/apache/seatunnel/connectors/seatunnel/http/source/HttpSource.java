@@ -198,12 +198,12 @@ public class HttpSource extends AbstractSingleSplitSource<SeaTunnelRow> {
             SingleSplitReaderContext readerContext) throws Exception {
         HttpSourceReader httpSourceReader =
                 new HttpSourceReader(
-                this.httpParameter,
-                readerContext,
-                this.deserializationSchema,
-                jsonField,
-                contentField,
-                pageInfo);
+                        this.httpParameter,
+                        readerContext,
+                        this.deserializationSchema,
+                        jsonField,
+                        contentField,
+                        pageInfo);
         httpSourceReader.setDynamicParams(dynamicParams);
         return httpSourceReader;
     }

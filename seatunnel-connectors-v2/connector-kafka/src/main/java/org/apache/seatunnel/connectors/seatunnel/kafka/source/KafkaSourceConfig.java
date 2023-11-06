@@ -59,7 +59,23 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
-import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.*;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.BOOTSTRAP_SERVERS;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.COMMIT_ON_CHECKPOINT;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.CONNECTOR_IDENTITY;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.CONSUMER_GROUP;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.CONTENT_FIELD;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.DEBEZIUM_RECORD_INCLUDE_SCHEMA;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.FIELD_DELIMITER;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.FORMAT;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.JSON_FIELD;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.KAFKA_CONFIG;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.KEY_PARTITION_DISCOVERY_INTERVAL_MILLIS;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.MESSAGE_FORMAT_ERROR_HANDLE_WAY_OPTION;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.PATTERN;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE_OFFSETS;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.START_MODE_TIMESTAMP;
+import static org.apache.seatunnel.connectors.seatunnel.kafka.config.Config.TOPIC;
 
 public class KafkaSourceConfig implements Serializable {
 
@@ -204,8 +220,7 @@ public class KafkaSourceConfig implements Serializable {
             case JSON_PATH:
                 Config config = readonlyConfig.toConfig();
                 if (config.hasPath(JSON_FIELD.key())) {
-                    jsonField =
-                            getJsonField(config.getConfig(JSON_FIELD.key()));
+                    jsonField = getJsonField(config.getConfig(JSON_FIELD.key()));
                 }
                 if (config.hasPath(CONTENT_FIELD.key())) {
                     contentField = config.getString(CONTENT_FIELD.key());

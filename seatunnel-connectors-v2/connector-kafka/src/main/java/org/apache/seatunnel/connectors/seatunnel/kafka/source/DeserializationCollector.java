@@ -17,11 +17,12 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.source;
 
-import lombok.AllArgsConstructor;
 import org.apache.seatunnel.api.serialization.DeserializationSchema;
 import org.apache.seatunnel.api.source.Collector;
 import org.apache.seatunnel.api.table.type.SeaTunnelRow;
 import org.apache.seatunnel.format.json.JsonDeserializationSchema;
+
+import lombok.AllArgsConstructor;
 
 import java.io.IOException;
 

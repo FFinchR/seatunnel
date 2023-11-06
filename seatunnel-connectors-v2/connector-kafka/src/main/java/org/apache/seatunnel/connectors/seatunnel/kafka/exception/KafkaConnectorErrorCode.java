@@ -33,7 +33,6 @@ public enum KafkaConnectorErrorCode implements SeaTunnelErrorCode {
 
     FIELD_DATA_IS_INCONSISTENT("KAFKA-CUSTOM-JSON-08", "The field data is inconsistent");
 
-
     private final String code;
     private final String description;
 

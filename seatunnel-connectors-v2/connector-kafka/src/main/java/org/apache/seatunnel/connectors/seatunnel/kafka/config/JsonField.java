@@ -17,9 +17,10 @@
 
 package org.apache.seatunnel.connectors.seatunnel.kafka.config;
 
+import org.apache.seatunnel.api.configuration.util.OptionMark;
+
 import lombok.Builder;
 import lombok.Data;
-import org.apache.seatunnel.api.configuration.util.OptionMark;
 
 import java.io.Serializable;
 import java.util.Map;

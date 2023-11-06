@@ -40,7 +40,6 @@ public class Config {
                     .withDescription(
                             "SeaTunnel content field.This parameter can get some json data, and there is no need to configure each field separately.");
 
-
     public static final String CONNECTOR_IDENTITY = "Kafka";
     /** The default field delimiter is “,” */
     public static final String DEFAULT_FIELD_DELIMITER = ",";

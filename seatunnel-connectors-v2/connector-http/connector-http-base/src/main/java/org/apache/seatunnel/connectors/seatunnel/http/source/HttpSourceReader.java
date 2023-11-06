@@ -51,9 +51,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.Optional;
 
 @Slf4j
 @Setter
@@ -79,6 +79,7 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
     private int currentParamsIndex;
     /** 原始参数，含占位符 */
     private HttpParameter originHttpParameter;
+
     public HttpSourceReader(
             HttpParameter httpParameter,
             SingleSplitReaderContext context,
@@ -155,14 +156,14 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
         }
     }
 
-//    private void updateRequestParam(PageInfo pageInfo) {
-//        if (this.httpParameter.getParams() == null) {
-//            httpParameter.setParams(new HashMap<>());
-//        }
-//        this.httpParameter
-//                .getParams()
-//                .put(pageInfo.getPageField(), pageInfo.getPageIndex().toString());
-//    }
+    //    private void updateRequestParam(PageInfo pageInfo) {
+    //        if (this.httpParameter.getParams() == null) {
+    //            httpParameter.setParams(new HashMap<>());
+    //        }
+    //        this.httpParameter
+    //                .getParams()
+    //                .put(pageInfo.getPageField(), pageInfo.getPageIndex().toString());
+    //    }
 
     private void newUpdateRequestParam() {
 
@@ -226,38 +227,38 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
         }
     }
 
-//    @Override
-//    public void pollNext(Collector<SeaTunnelRow> output) throws Exception {
-//        try {
-//            if (pageInfoOptional.isPresent()) {
-//                noMoreElementFlag = false;
-//                Long pageIndex = 1L;
-//                while (!noMoreElementFlag) {
-//                    PageInfo info = pageInfoOptional.get();
-//                    // increment page
-//                    info.setPageIndex(pageIndex);
-//                    // set request param
-//                    updateRequestParam(info);
-//                    pollAndCollectData(output);
-//                    pageIndex += 1;
-//                }
-//            } else {
-//                pollAndCollectData(output);
-//            }
-//        } catch (Exception e) {
-//            log.error(e.getMessage(), e);
-//        } finally {
-//            if (Boundedness.BOUNDED.equals(context.getBoundedness()) && noMoreElementFlag) {
-//                // signal to the source that we have reached the end of the data.
-//                log.info("Closed the bounded http source");
-//                context.signalNoMoreElement();
-//            } else {
-//                if (httpParameter.getPollIntervalMillis() > 0) {
-//                    Thread.sleep(httpParameter.getPollIntervalMillis());
-//                }
-//            }
-//        }
-//    }
+    //    @Override
+    //    public void pollNext(Collector<SeaTunnelRow> output) throws Exception {
+    //        try {
+    //            if (pageInfoOptional.isPresent()) {
+    //                noMoreElementFlag = false;
+    //                Long pageIndex = 1L;
+    //                while (!noMoreElementFlag) {
+    //                    PageInfo info = pageInfoOptional.get();
+    //                    // increment page
+    //                    info.setPageIndex(pageIndex);
+    //                    // set request param
+    //                    updateRequestParam(info);
+    //                    pollAndCollectData(output);
+    //                    pageIndex += 1;
+    //                }
+    //            } else {
+    //                pollAndCollectData(output);
+    //            }
+    //        } catch (Exception e) {
+    //            log.error(e.getMessage(), e);
+    //        } finally {
+    //            if (Boundedness.BOUNDED.equals(context.getBoundedness()) && noMoreElementFlag) {
+    //                // signal to the source that we have reached the end of the data.
+    //                log.info("Closed the bounded http source");
+    //                context.signalNoMoreElement();
+    //            } else {
+    //                if (httpParameter.getPollIntervalMillis() > 0) {
+    //                    Thread.sleep(httpParameter.getPollIntervalMillis());
+    //                }
+    //            }
+    //        }
+    //    }
 
     private void collect(Collector<SeaTunnelRow> output, String data) throws IOException {
         if (contentJson != null) {
