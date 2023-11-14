@@ -202,7 +202,6 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
     @Override
     public FSDataInputStream open(Path file, int bufferSize) throws IOException {
         FTPClient client = connect();
-        client.enterLocalPassiveMode();
         Path workDir = new Path(client.printWorkingDirectory());
         Path absolute = makeAbsolute(workDir, file);
         FileStatus fileStat = getFileStatus(client, absolute);
@@ -219,7 +218,7 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
         // directory on the server is changed to the parent directory of the file.
         // The FTP client connection is closed when close() is called on the
         // FSDataInputStream.
-        client.changeWorkingDirectory(parent.toUri().getPath());
+        client.changeWorkingDirectory(getEncodedString(parent.toUri().getPath()));
         InputStream is = client.retrieveFileStream(getEncodedString(file.getName()));
         FSDataInputStream fis = new FSDataInputStream(new FTPInputStream(is, client, statistics));
         if (!FTPReply.isPositivePreliminary(client.getReplyCode())) {
@@ -658,6 +657,6 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
     }
 
     private String getEncodedString(String string) throws UnsupportedEncodingException {
-        return new String(string.getBytes(), FTP.DEFAULT_CONTROL_ENCODING);
+        return new String(string.getBytes(StandardCharsets.UTF_8), FTP.DEFAULT_CONTROL_ENCODING);
     }
 }
