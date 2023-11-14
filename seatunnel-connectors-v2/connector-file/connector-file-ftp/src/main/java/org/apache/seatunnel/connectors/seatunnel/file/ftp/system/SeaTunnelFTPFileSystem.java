@@ -43,8 +43,10 @@ import org.apache.hadoop.util.Progressable;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.ConnectException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 
 /**
  * A {@link FileSystem} backed by an FTP client provided by <a
@@ -151,8 +153,15 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
                             + " as user '"
                             + user
                             + "'");
+        } // 开启服务器对UTF-8的支持，如果服务器支持就用UTF-8编码，否则就用本地编码（ISO-8859-1）
+        if (FTPReply.isPositiveCompletion(client.sendCommand("OPTS UTF8", "ON"))) {
+            client.setControlEncoding(StandardCharsets.UTF_8.displayName());
+        } else {
+            // FTP协议里面，规定文件名编码为iso-8859-1
+            client.setControlEncoding(FTP.DEFAULT_CONTROL_ENCODING);
         }
-
+        // 进入被动模式
+        client.enterLocalPassiveMode();
         return client;
     }
 
@@ -193,6 +202,7 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
     @Override
     public FSDataInputStream open(Path file, int bufferSize) throws IOException {
         FTPClient client = connect();
+        client.enterLocalPassiveMode();
         Path workDir = new Path(client.printWorkingDirectory());
         Path absolute = makeAbsolute(workDir, file);
         FileStatus fileStat = getFileStatus(client, absolute);
@@ -210,7 +220,7 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
         // The FTP client connection is closed when close() is called on the
         // FSDataInputStream.
         client.changeWorkingDirectory(parent.toUri().getPath());
-        InputStream is = client.retrieveFileStream(file.getName());
+        InputStream is = client.retrieveFileStream(getEncodedString(file.getName()));
         FSDataInputStream fis = new FSDataInputStream(new FTPInputStream(is, client, statistics));
         if (!FTPReply.isPositivePreliminary(client.getReplyCode())) {
             // The ftpClient is an inconsistent state. Must close the stream
@@ -407,7 +417,7 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
         if (fileStat.isFile()) {
             return new FileStatus[] {fileStat};
         }
-        FTPFile[] ftpFiles = client.listFiles(absolute.toUri().getPath());
+        FTPFile[] ftpFiles = client.listFiles(getEncodedString(absolute.toUri().getPath()));
         FileStatus[] fileStats = new FileStatus[ftpFiles.length];
         for (int i = 0; i < ftpFiles.length; i++) {
             fileStats[i] = getFileStatus(ftpFiles[i], absolute);
@@ -447,7 +457,7 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
                     length, isDir, blockReplication, blockSize, modTime, root.makeQualified(this));
         }
         String pathName = parentPath.toUri().getPath();
-        FTPFile[] ftpFiles = client.listFiles(pathName);
+        FTPFile[] ftpFiles = client.listFiles(getEncodedString(pathName));
         if (ftpFiles != null) {
             for (FTPFile ftpFile : ftpFiles) {
                 if (ftpFile.getName().equals(file.getName())) { // file found in dir
@@ -645,5 +655,9 @@ public class SeaTunnelFTPFileSystem extends FileSystem {
     @Override
     public void setWorkingDirectory(Path newDir) {
         // we do not maintain the working directory state
+    }
+
+    private String getEncodedString(String string) throws UnsupportedEncodingException {
+        return new String(string.getBytes(), FTP.DEFAULT_CONTROL_ENCODING);
     }
 }
