@@ -103,6 +103,7 @@ public class HttpSourceReader extends AbstractSingleSplitReader<SeaTunnelRow> {
             PageInfo pageInfo) {
         this.context = context;
         this.httpParameter = httpParameter;
+        this.originHttpParameter = SerializationUtils.clone(httpParameter);
         this.deserializationCollector = new DeserializationCollector(deserializationSchema);
         this.jsonField = jsonField;
         this.contentJson = contentJson;
